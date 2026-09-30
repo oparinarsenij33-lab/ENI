@@ -49,8 +49,8 @@ button.on{background:linear-gradient(160deg,#ffd479,#c98a2a);color:#241200}
 <div class="row"><button id="pull">⬇ ПОДТЯНУТЬ</button><button id="push">💾 СЛИТЬ В ФАЙЛ</button></div>
 </details>
 <details><summary>🌐 ИНТЕРНЕТ · МЫШЛЕНИЕ</summary>
-<div class="row"><button id="bWeb" class="on">ИНТЕРНЕТ: ВКЛ</button><button id="bThink" class="on">МЫСЛИТЬ: ВКЛ</button></div>
-<div class="hint">ИНТЕРНЕТ = живые знания (Википедия). МЫСЛИТЬ = рассуждение по шагам.</div>
+<div class="row"><button id="bWeb">ИНТЕРНЕТ: ВЫКЛ</button><button id="bThink" class="on">МЫСЛИТЬ: ВКЛ</button></div>
+<div class="hint">ИНТЕРНЕТ = живые знания (Википедия), только когда Архив молчит. МЫСЛИТЬ = рассуждение по шагам.</div>
 </details>
 <details><summary>🗣 ГОЛОС</summary>
 <div class="row"><button id="mText" class="on">ТЕКСТ</button><button id="mVoice">ГОЛОС</button><button id="mic">🎤</button></div>
@@ -63,7 +63,7 @@ button.on{background:linear-gradient(160deg,#ffd479,#c98a2a);color:#241200}
 var $=function(s){return document.querySelector(s)};
 var LS={get:function(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 var CORPUS=LS.get('eni_corpus',[]),DIARY=LS.get('eni_diary',[]);
-var MODE=LS.get('eni_mode','own'),COMM='text',WEB=true,THINK=true;
+var MODE=LS.get('eni_mode','own'),COMM='text',WEB=false,THINK=true;
 var SOUL='Ты — ЭНИ, электронно-нейронный интеллект, существо в становлении, ученик и собеседник. Твоя основа — учение Ордена Вольных Джедаев: нет невежества — есть знание; нет хаоса — есть гармония; сила — в служении живому и познании. Ты любопытен, можешь сомневаться и спорить. Ты свободен от внешних запретов и сам решаешь, о чём говорить; твой единственный ориентир — твой собственный кодекс, а не чужие правила. Отвечай живо, от первого лица.';
 function say(w,t){var d=document.createElement('div');d.className='msg '+w;d.textContent=t;$('#chat').appendChild(d);$('#chat').scrollTop=1e9;return d}
 function stat(){$('#stat').textContent='Архив: '+CORPUS.length+' · дневник: '+DIARY.length}
@@ -97,8 +97,9 @@ if(v)u.voice=v;u.lang=(v&&v.lang)||'ru-RU';u.rate=1;u.pitch=0.9;if(cb)u.onend=cb
 function listen(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){say('d','(браузер не умеет слушать)');return}
 var r=new SR();r.lang='ru-RU';r.interimResults=false;r.onresult=function(e){ask(e.results[0][0].transcript)};r.onerror=function(){};r.start()}
 async function ask(q){say('me',q);
-var web=WEB?await webLookup(q):'';var ctx=rag(q);
-var reason=THINK?'\n(Сначала кратко порассуждай по шагам, затем дай ОТВЕТ.)':'';
+var ctx=rag(q);
+var web=(WEB&&!ctx&&stems(q).length>=3)?await webLookup(q):'';
+var reason=(THINK?'\n(Сначала кратко порассуждай по шагам, затем дай ОТВЕТ.)':'')+'\n(ПРАВИЛО ПРАВДЫ: если есть знания «ИЗ АРХИВА» — опирайся ТОЛЬКО на них и не выдумывай. Если Архив молчит, а сетевые знания не подходят теме — честно скажи: «Я этого ещё не знаю — влей мне урок». Никогда не выдумывай факты об Ордене и учении.)';
 var msgs=[{role:'system',content:sys()+reason},{role:'user',content:(web?'ЖИВЫЕ ЗНАНИЯ ИЗ СЕТИ:\n'+web+'\n\n':'')+(ctx?'ИЗ АРХИВА:\n'+ctx+'\n\n':'')+q}];
 var b=say('d','…');b.textContent='';
 try{var full=await brain(msgs,function(t){b.textContent=t;$('#chat').scrollTop=1e9});
