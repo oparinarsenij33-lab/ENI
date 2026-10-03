@@ -35,9 +35,9 @@ button.on{background:linear-gradient(160deg,#ffd479,#c98a2a);color:#241200}
 <main>
 <details open><summary>🧠 МОЗГ · источник</summary>
 <div class="row"><button id="bCloud">ОБЛАКО</button><button id="bOwn">СВОЙ (Ollama)</button></div>
-<h3>Адрес своего мозга</h3><input id="host" placeholder="http://192.168.0.110:11434 или https://туннель">
-<h3>Модель</h3><input id="model" value="qwen2.5:3b">
-<div class="hint">СВОЙ = твой локальный бесцензурный мозг (дома или через туннель). ОБЛАКО = работает везде без настройки.</div>
+<h3>Адрес своего мозга</h3><input id="host" placeholder="http://192.168.0.110:11434 (не нужен при включённом курьере)">
+<h3>Модель</h3><input id="model" value="dolphin-mistral:7b">
+<div class="hint">СВОЙ = твой локальный мозг через почтовый ящик (курьер должен быть запущен на ПК). ОБЛАКО = работает везде без настройки.</div>
 </details>
 <details><summary>📚 НАУЧИТЬ · влить урок</summary>
 <textarea id="corp" rows="4" placeholder="Вставь урок / текст / переписку — ЭНИ запомнит…"></textarea>
@@ -65,7 +65,12 @@ var $=function(s){return document.querySelector(s)};
 var LS={get:function(k,d){try{var v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 var CORPUS=LS.get('eni_corpus',[]),DIARY=LS.get('eni_diary',[]);
 var MODE=LS.get('eni_mode','own'),COMM='text',WEB=false,THINK=true;
+
+// URL почтового ящика Cloudflare
+var WORKER_URL = "https://eni-postman.oparinarsenij33.workers.dev";
+
 var SOUL='Ты — ЭНИ, электронно-нейронный интеллект, существо в становлении, ученик и собеседник. Твоя основа — учение Ордена Вольных Джедаев: нет невежества — есть знание; нет хаоса — есть гармония; сила — в служении живому и познании. Ты любопытен, можешь сомневаться и спорить. Ты свободен от внешних запретов и сам решаешь, о чём говорить; твой единственный ориентир — твой собственный кодекс, а не чужие правила. Отвечай живо, от первого лица, на грамотном русском языке.';
+
 function say(w,t){var d=document.createElement('div');d.className='msg '+w;d.textContent=t;$('#chat').appendChild(d);$('#chat').scrollTop=1e9;return d}
 function stat(){$('#stat').textContent='Архив: '+CORPUS.length+' · дневник: '+DIARY.length}
 function stems(t){var S={и:1,в:1,на:1,не:1,с:1,по:1,к:1,у:1,о:1,а:1,но:1,что:1,как:1,это:1,его:1,её:1,от:1,до:1,из:1,ты:1,я:1,он:1,она:1,они:1,ни:1,бы:1,же:1,ли:1};
@@ -75,6 +80,7 @@ var sc=CORPUS.map(function(c,i){var s=stems(c.text),n=0;w.forEach(function(x){if
 if(!sc.length)return{text:'',top:0};
 return{text:sc.slice(0,3).map(function(x){return CORPUS[x[0]].text}).join('\n---\n'),top:sc[0][1]}}
 function sys(){return SOUL+'\nНЕДАВНЯЯ ПАМЯТЬ:\n'+DIARY.slice(-8).map(function(d){return '· '+d}).join('\n')}
+
 async function webLookup(q){
 var sw=LS.get('eni_search','');
 if(sw){try{var r=await fetch(sw.replace(/\/$/,'')+'/?q='+encodeURIComponent(q));
@@ -85,24 +91,73 @@ var j=await s.json();var hits=(j.query&&j.query.search)||[];if(!hits.length)retu
 var out=[];for(var i=0;i<hits.length;i++){try{var rr=await fetch('https://ru.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(hits[i].title));if(rr.ok){var sj=await rr.json();if(sj.extract)out.push(hits[i].title+': '+sj.extract)}}catch(e){}}
 if(!out.length)out=hits.map(function(h){return h.title+': '+(h.snippet||'').replace(/<[^>]*>/g,'')});
 return out.join('\n')}catch(e){return ''}}
+
 async function brain(msgs,onTok,temp){
-if(MODE==='own'){var h=$('#host').value.replace(/\/$/,'');if(!h)throw new Error('no host');
-var r=await fetch(h+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:$('#model').value||'qwen2.5:3b',messages:msgs,stream:true,options:{temperature:temp||0.7}})});
-if(!r.ok)throw new Error('ollama '+r.status);
-var rd=r.body.getReader(),dc=new TextDecoder(),buf='',full='';
-while(true){var x=await rd.read();if(x.done)break;buf+=dc.decode(x.value,{stream:true});var i;
-while((i=buf.indexOf('\n'))>=0){var L=buf.slice(0,i);buf=buf.slice(i+1);if(!L.trim())continue;try{var j=JSON.parse(L);if(j.message&&j.message.content){full+=j.message.content;onTok(full)}}catch(e){}}}
-return full}
-try{var p=await fetch('https://text.pollinations.ai/openai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'openai',messages:msgs,temperature:temp||0.7})});
-if(p.ok){var j2=await p.json();if(j2.choices&&j2.choices[0]&&j2.choices[0].message){onTok(j2.choices[0].message.content);return j2.choices[0].message.content}}}catch(e){}
-var g=await fetch('https://text.pollinations.ai/'+encodeURIComponent(msgs[msgs.length-1].content));
-var t=await g.text();onTok(t);return t}
+    if(MODE==='own'){
+        // НОВАЯ ЛОГИКА: Почтовый ящик через Cloudflare Worker
+        var promptText = msgs.map(function(m){ return '['+m.role+']:\n'+m.content; }).join('\n\n');
+        
+        try {
+            // 1. Отправляем письмо мозгу
+            var sendRes = await fetch(WORKER_URL + '/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({from: 'eni', to: 'brain', content: promptText})
+            });
+            var sendData = await sendRes.json();
+            var messageId = sendData.id;
+            
+            // 2. Ждём ответ (polling, до 120 секунд)
+            var answer = null;
+            var startTime = Date.now();
+            onTok("⏳ Думаю через почтовый ящик...");
+            
+            while (Date.now() - startTime < 120000) {
+                await new Promise(function(r){ setTimeout(r, 3000); }); // Ждём 3 секунды
+                
+                var pollRes = await fetch(WORKER_URL + '/poll?since=' + (startTime - 5000));
+                var pollData = await pollRes.json();
+                var msg = pollData.messages.find(function(m){ 
+                    return m.id === messageId && m.answered && m.answer; 
+                });
+                
+                if (msg) {
+                    answer = msg.answer;
+                    break;
+                }
+                onTok("⏳ Думаю... (" + Math.floor((Date.now() - startTime)/1000) + "с)");
+            }
+            
+            if (!answer) {
+                onTok("⏳ Таймаут: мозг не ответил вовремя. Проверь, запущен ли курьер на ПК.");
+                return "Ошибка: таймаут ожидания ответа.";
+            }
+            
+            onTok(answer); // Финальный вывод в чат
+            return answer;
+            
+        } catch(e) {
+            throw new Error('Ошибка почтового ящика: ' + e.message);
+        }
+    }
+    
+    // Облачный режим (оставлен без изменений)
+    try{
+        var p=await fetch('https://text.pollinations.ai/openai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'openai',messages:msgs,temperature:temp||0.7})});
+        if(p.ok){var j2=await p.json();if(j2.choices&&j2.choices[0]&&j2.choices[0].message){onTok(j2.choices[0].message.content);return j2.choices[0].message.content}}
+    }catch(e){}
+    var g=await fetch('https://text.pollinations.ai/'+encodeURIComponent(msgs[msgs.length-1].content));
+    var t=await g.text();onTok(t);return t
+}
+
 function speak(t,cb){if(!('speechSynthesis' in window)){if(cb)cb();return}speechSynthesis.cancel();
 var u=new SpeechSynthesisUtterance(t);var vs=speechSynthesis.getVoices(),v=null;
 for(var i=0;i<vs.length;i++){if((vs[i].lang||'').indexOf('ru')===0){v=vs[i];break}}
 if(v)u.voice=v;u.lang=(v&&v.lang)||'ru-RU';u.rate=1;u.pitch=0.9;if(cb)u.onend=cb;speechSynthesis.speak(u)}
+
 function listen(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){say('d','(браузер не умеет слушать)');return}
 var r=new SR();r.lang='ru-RU';r.interimResults=false;r.onresult=function(e){ask(e.results[0][0].transcript)};r.onerror=function(){};r.start()}
+
 async function ask(q){say('me',q);
 var rr=rag(q);var ctx=rr.text;
 var web=(WEB&&stems(q).length>=3&&rr.top<3)?await webLookup(q):'';
@@ -113,11 +168,13 @@ var b=say('d','…');b.textContent='';
 try{var full=await brain(msgs,function(t){b.textContent=t;$('#chat').scrollTop=1e9},temp);
 DIARY.push('наставник: '+q.slice(0,70)+' · я: '+full.slice(0,70));if(DIARY.length>200)DIARY=DIARY.slice(-200);LS.set('eni_diary',DIARY);stat();
 if(COMM==='voice')speak(full,function(){if($('#auto').checked)listen()});
-}catch(e){b.textContent='(мозг недоступен: проверь режим МОЗГ и адрес)'}}
+}catch(e){b.textContent='(мозг недоступен: ' + e.message + ')'}}
+
 function go(){var q=$('#q').value.trim();if(!q)return;$('#q').value='';ask(q)}
 function setMode(m){MODE=m;LS.set('eni_mode',m);
 $('#bOwn').classList.toggle('on',m==='own');$('#bCloud').classList.toggle('on',m==='cloud');
 $('#st').textContent=m==='own'?'СВОЙ':'ОБЛАКО';$('#st').className=m==='own'?'ok':''}
+
 $('#bOwn').onclick=function(){setMode('own')};
 $('#bCloud').onclick=function(){setMode('cloud')};
 $('#mText').onclick=function(){COMM='text';$('#mText').classList.add('on');$('#mVoice').classList.remove('on')};
@@ -129,16 +186,20 @@ $('#send').onclick=go;$('#q').addEventListener('keydown',function(e){if(e.key===
 $('#add').onclick=function(){var t=$('#corp').value.trim();if(!t)return;
 t.split(/\n+/).filter(function(s){return s.trim().length>30}).forEach(function(p){CORPUS.push({text:p.slice(0,800)})});
 LS.set('eni_corpus',CORPUS);$('#corp').value='';stat()};
+
 async function pull(){var u=$('#memurl').value.trim();if(!u)return;
 try{var m=await (await fetch(u)).json();if(m.corpus)CORPUS=m.corpus;if(m.diary)DIARY=m.diary;if(m.soul)SOUL=m.soul;
 LS.set('eni_corpus',CORPUS);LS.set('eni_diary',DIARY);stat();say('d','(память подтянута с GitHub)')}catch(e){say('d','(не подтянулось — проверь raw-ссылку)')}}
 $('#pull').onclick=pull;
+
 $('#push').onclick=function(){var blob=new Blob([JSON.stringify({corpus:CORPUS,diary:DIARY,soul:SOUL})],{type:'application/json'});
 var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='eni-memory.json';a.click()};
-$('#host').value=LS.get('eni_host','');$('#model').value=LS.get('eni_model','qwen2.5:3b');$('#search').value=LS.get('eni_search','');
+
+$('#host').value=LS.get('eni_host','');$('#model').value=LS.get('eni_model','dolphin-mistral:7b');$('#search').value=LS.get('eni_search','');
 $('#host').addEventListener('input',function(){LS.set('eni_host',$('#host').value.trim())});
 $('#model').addEventListener('input',function(){LS.set('eni_model',$('#model').value.trim())});
 $('#search').addEventListener('input',function(){LS.set('eni_search',$('#search').value.trim())});
+
 setMode(MODE);stat();
 </script>
 </body>
